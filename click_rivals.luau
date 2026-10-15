@@ -712,7 +712,7 @@ end))
 local oldIndex
 oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, k)
 	if not checkcaller() and silentOn() then
-		if self:IsA("Mouse") and (k == "Hit" or k == "Target") then
+		if (k == "Hit" or k == "Target") and self:IsA("Mouse") then
 			local t = redirectTarget()
 			if t then
 				if k == "Hit" then return t.CFrame end
