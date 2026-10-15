@@ -17,7 +17,7 @@ local function fetch(path)
 	return nil
 end
 
-local src = fetch("windui_rivals.luau")
+local src = fetch("click_rivals.luau")
 if not src then warn("[rv] fetch failed") return end
 local fn, err = loadstring(src)
 if fn then fn() else warn("[rv] loadstring: " .. tostring(err)) end
