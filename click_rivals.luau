@@ -425,6 +425,25 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while not DEAD do
+		task.wait(flag("as_delay", 0.12))
+		if flag("autoshoot", false) then
+			local _, part = pickTarget()
+			if part then
+				local ftr = localFighter()
+				if ftr then
+					pcall(function()
+						setthreadidentity(2)
+						ftr:Input("StartShooting")
+						setthreadidentity(7)
+					end)
+				end
+			end
+		end
+	end
+end)
+
 local cosLib, enumLib, pdc, repClass
 local function resolveCos()
 	if not cosLib then
@@ -481,25 +500,32 @@ local function skinOn() return flag("skin_unlock", false) end
 installSkinHooks = function()
 	if skinHooksDone or not resolveCos() then return end
 	skinHooksDone = true
+	local function wantsOwnedCosmetic(...)
+		for i = 2, select("#", ...) do
+			local v = select(i, ...)
+			if type(v) == "string" then
+				local cc = cosLib.Cosmetics[v]
+				if cc and skinOK(cc) and not v:find("MISSING_") and v ~= "Bubble Gun" then return true end
+			end
+		end
+		return false
+	end
 	for _, n in ipairs({"OwnsCosmeticNormally", "OwnsCosmeticUniversally", "OwnsCosmeticForWeapon"}) do
 		local orig = cosLib[n]
 		if type(orig) == "function" then
-			cosLib[n] = function(s, a, b, c)
-				if not skinOn() then return orig(s, a, b, c) end
-				local cc = cosLib.Cosmetics[b]
-				if cc and skinOK(cc) then return true end
-				return false
+			cosLib[n] = function(...)
+				if not skinOn() then return orig(...) end
+				if wantsOwnedCosmetic(...) then return true end
+				return orig(...)
 			end
 		end
 	end
 	local oOwn = cosLib.OwnsCosmetic
 	if type(oOwn) == "function" then
-		cosLib.OwnsCosmetic = function(s, a, b, c)
-			if not skinOn() then return oOwn(s, a, b, c) end
-			if type(b) == "string" and (b:find("MISSING_") or b == "Bubble Gun") then return oOwn(s, a, b, c) end
-			local cc = cosLib.Cosmetics[b]
-			if cc and skinOK(cc) then return true end
-			return oOwn(s, a, b, c)
+		cosLib.OwnsCosmetic = function(...)
+			if not skinOn() then return oOwn(...) end
+			if wantsOwnedCosmetic(...) then return true end
+			return oOwn(...)
 		end
 	end
 	local oGet = pdc.Get
@@ -509,12 +535,10 @@ installSkinHooks = function()
 			local orig = oGet(s, key)
 			if key == "CosmeticInventory" then
 				local inv = {}
-				if orig then
-					for name, val in pairs(orig) do
-						local cc = cosLib.Cosmetics[name]
-						if cc and skinOK(cc) then inv[name] = val end
-					end
+				for name, c in pairs(cosLib.Cosmetics) do
+					if skinOK(c) and not name:find("MISSING_") and name ~= "Bubble Gun" then inv[name] = true end
 				end
+				if orig then for name, val in pairs(orig) do if val ~= nil then inv[name] = val end end end
 				return setmetatable(inv, {__index = function(_, k)
 					local cc = cosLib.Cosmetics[k]
 					if cc and skinOK(cc) then return true end
@@ -826,6 +850,11 @@ local camSec = combat:Section("camera aim", "Right")
 Controls.cam_aim = camSec:Toggle({Title = "enabled (hold M2)", Flag = "cam_aim", Default = false})
 camSec:Slider({Title = "smoothing", Flag = "aim_smooth", Min = 0, Max = 0.95, Default = 0.3, Decimals = 100, Callback = function(v) CFG.Smooth = v end})
 Controls.team_check = camSec:Toggle({Title = "team check", Flag = "team_check", Default = true})
+
+local asSec = combat:Section("auto shoot", "Right")
+Controls.autoshoot = asSec:Toggle({Title = "enabled", Flag = "autoshoot", Default = false})
+asSec:Label("fires when a target is locked")
+asSec:Slider({Title = "delay", Flag = "as_delay", Min = 0.03, Max = 0.5, Default = 0.12, Decimals = 2})
 
 local tbSec = combat:Section("triggerbot", "Right")
 Controls.triggerbot = tbSec:Toggle({Title = "enabled", Flag = "triggerbot", Default = false})
