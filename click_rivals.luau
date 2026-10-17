@@ -341,11 +341,13 @@ local function wrapClass(cls)
 	wrapped[cls] = {orig = orig, wrap = wrap}
 	cls.StartShooting = wrap
 end
+local installSkinHooks
 local function ensureHooks()
 	for _, n in ipairs({"Gun", "Melee", "Gunblade", "ClientItem"}) do
 		local c = resolveClass(n)
 		if c then wrapClass(c) end
 	end
+	if installSkinHooks then installSkinHooks() end
 end
 ensureHooks()
 task.spawn(function()
@@ -422,6 +424,233 @@ task.spawn(function()
 		end
 	end
 end)
+
+local cosLib, enumLib, pdc, repClass
+local function resolveCos()
+	if not cosLib then
+		local mods = rs:FindFirstChild("Modules")
+		local m = mods and mods:FindFirstChild("CosmeticLibrary")
+		if m then local ok, t = pcall(require, m) if ok then cosLib = t end end
+		m = mods and mods:FindFirstChild("EnumLibrary")
+		if m then
+			local ok, t = pcall(require, m)
+			if ok then enumLib = t pcall(function() enumLib:WaitForEnumBuilder() end) end
+		end
+		m = mods and mods:FindFirstChild("ReplicatedClass")
+		if m then local ok, t = pcall(require, m) if ok then repClass = t end end
+	end
+	if not pdc then
+		local ps = lp:FindFirstChild("PlayerScripts")
+		local m = ps and ps:FindFirstChild("Controllers") and ps.Controllers:FindFirstChild("PlayerDataController")
+		if m then local ok, t = pcall(require, m) if ok then pdc = t end end
+	end
+	return cosLib ~= nil and pdc ~= nil
+end
+
+local COSMETIC_TYPES = {Skin = true, Wrap = true, Charm = true, Dance = true, Emote = true, Finisher = true, Arm = true, DeathEffect = true, KillEffect = true}
+local function skinOK(c) return c ~= nil and COSMETIC_TYPES[c.Type] == true end
+local equipMap, favMap = {}, {}
+local function makeCosmetic(name, slotType, opts)
+	local c = cosLib and cosLib.Cosmetics and cosLib.Cosmetics[name]
+	if not c then return nil end
+	local o = {}
+	for k, v in pairs(c) do o[k] = v end
+	o.Name = name
+	o.Type = o.Type or slotType
+	o.Seed = o.Seed or math.random(1, 1000000)
+	if enumLib then
+		local ok, e = pcall(enumLib.ToEnum, enumLib, name)
+		if ok and e then o.Enum = e o.ObjectID = o.ObjectID or e end
+	end
+	if opts then
+		if opts.inverted ~= nil then o.Inverted = opts.inverted end
+		if opts.favoritesOnly ~= nil then o.OnlyUseFavorites = opts.favoritesOnly end
+	end
+	return o
+end
+local function refreshCosmetics()
+	pcall(function()
+		for _, k in ipairs({"CosmeticInventory", "WeaponInventory", "FavoritedCosmetics"}) do
+			pdc.CurrentData:Replicate(k)
+		end
+	end)
+end
+
+local skinHooksDone = false
+local function skinOn() return flag("skin_unlock", false) end
+installSkinHooks = function()
+	if skinHooksDone or not resolveCos() then return end
+	skinHooksDone = true
+	for _, n in ipairs({"OwnsCosmeticNormally", "OwnsCosmeticUniversally", "OwnsCosmeticForWeapon"}) do
+		local orig = cosLib[n]
+		if type(orig) == "function" then
+			cosLib[n] = function(s, a, b, c)
+				if not skinOn() then return orig(s, a, b, c) end
+				local cc = cosLib.Cosmetics[b]
+				if cc and skinOK(cc) then return true end
+				return false
+			end
+		end
+	end
+	local oOwn = cosLib.OwnsCosmetic
+	if type(oOwn) == "function" then
+		cosLib.OwnsCosmetic = function(s, a, b, c)
+			if not skinOn() then return oOwn(s, a, b, c) end
+			if type(b) == "string" and (b:find("MISSING_") or b == "Bubble Gun") then return oOwn(s, a, b, c) end
+			local cc = cosLib.Cosmetics[b]
+			if cc and skinOK(cc) then return true end
+			return oOwn(s, a, b, c)
+		end
+	end
+	local oGet = pdc.Get
+	if type(oGet) == "function" then
+		pdc.Get = function(s, key)
+			if not skinOn() then return oGet(s, key) end
+			local orig = oGet(s, key)
+			if key == "CosmeticInventory" then
+				local inv = {}
+				if orig then
+					for name, val in pairs(orig) do
+						local cc = cosLib.Cosmetics[name]
+						if cc and skinOK(cc) then inv[name] = val end
+					end
+				end
+				return setmetatable(inv, {__index = function(_, k)
+					local cc = cosLib.Cosmetics[k]
+					if cc and skinOK(cc) then return true end
+					return nil
+				end})
+			end
+			if key == "FavoritedCosmetics" then
+				local f = orig and table.clone(orig) or {}
+				for w, tbl in pairs(favMap) do
+					f[w] = f[w] or {}
+					for n, v in pairs(tbl) do
+						local cc = cosLib.Cosmetics[n]
+						if cc and skinOK(cc) then f[w][n] = v end
+					end
+				end
+				return f
+			end
+			return orig
+		end
+	end
+	local oGwd = pdc.GetWeaponData
+	if type(oGwd) == "function" then
+		pdc.GetWeaponData = function(s, name)
+			if not skinOn() then return oGwd(s, name) end
+			local d = oGwd(s, name)
+			if not d then return nil end
+			local o = {}
+			for k, v in pairs(d) do o[k] = v end
+			o.Name = name
+			if equipMap[name] then for k, v in pairs(equipMap[name]) do o[k] = v end end
+			return o
+		end
+	end
+	local remotes = rs:FindFirstChild("Remotes")
+	local dataR = remotes and remotes:FindFirstChild("Data")
+	local equipR = dataR and dataR:FindFirstChild("EquipCosmetic")
+	local favR = dataR and dataR:FindFirstChild("FavoriteCosmetic")
+	if equipR and hookmetamethod and getnamecallmethod and newcclosure then
+		local on = nil
+		on = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+			if not skinOn() or getnamecallmethod() ~= "FireServer" then return on(self, ...) end
+			if self == equipR then
+				local a = {...}
+				local w, slot, cname, opts = a[1], a[2], a[3], a[4] or {}
+				if cname and cname ~= "None" and cname ~= "" then
+					local owned = false
+					pcall(function()
+						local inv = oGet(pdc, "CosmeticInventory")
+						if inv and rawget(inv, cname) then owned = true end
+					end)
+					if owned then return on(self, ...) end
+				end
+				equipMap[w] = equipMap[w] or {}
+				local t = slot
+				if type(slot) ~= "string" then
+					t = tostring(slot)
+					pcall(function()
+						local cc = cosLib.Cosmetics[cname]
+						if cc and type(cc.Type) == "string" then t = cc.Type end
+					end)
+				end
+				if not cname or cname == "None" or cname == "" then
+					equipMap[w][t] = nil
+					if t ~= slot then equipMap[w][slot] = nil end
+					if not next(equipMap[w]) then equipMap[w] = nil end
+				else
+					local cobj = makeCosmetic(cname, t, {inverted = opts.IsInverted or opts.inverted, favoritesOnly = opts.OnlyUseFavorites or opts.favoritesOnly})
+					if cobj then
+						equipMap[w][t] = cobj
+						if t ~= slot then equipMap[w][slot] = cobj end
+						if cobj.Type then equipMap[w][cobj.Type] = cobj end
+					end
+				end
+				task.defer(function() pcall(function() pdc.CurrentData:Replicate("WeaponInventory") end) end)
+				return
+			end
+			if self == favR then
+				local a = {...}
+				if cosLib.Cosmetics[a[2]] then
+					favMap[a[1]] = favMap[a[1]] or {}
+					favMap[a[1]][a[2]] = a[3] or nil
+					task.spawn(function() pcall(function() pdc.CurrentData:Replicate("FavoritedCosmetics") end) end)
+				end
+				return
+			end
+			return on(self, ...)
+		end))
+	end
+	local ci = resolveClass("ClientItem")
+	if ci and type(ci._CreateViewModel) == "function" then
+		local ocvm = ci._CreateViewModel
+		ci._CreateViewModel = function(item, C)
+			if not skinOn() then return ocvm(item, C) end
+			local iname = item.Name
+			local pl = item.ClientFighter and item.ClientFighter.Player
+			if pl == lp and equipMap[iname] then
+				local m2 = equipMap[iname]
+				local ok, W = pcall(function() return item:ToEnum("Data") end)
+				if ok and W and C[W] then
+					if m2.Skin then C[W][item:ToEnum("Skin")] = m2.Skin C[W][item:ToEnum("Name")] = m2.Skin.Name end
+					if m2.Charm then C[W][item:ToEnum("Charm")] = m2.Charm end
+					if m2.Wrap then C[W][item:ToEnum("Wrap")] = m2.Wrap end
+				elseif C.Data then
+					if m2.Skin then C.Data.Skin = m2.Skin C.Data.Name = m2.Skin.Name end
+					if m2.Charm then C.Data.Charm = m2.Charm end
+					if m2.Wrap then C.Data.Wrap = m2.Wrap end
+				end
+			end
+			return ocvm(item, C)
+		end
+	end
+	local cvmMod
+	pcall(function()
+		local ps = lp:FindFirstChild("PlayerScripts")
+		local m = ps and ps.Modules.ClientReplicatedClasses.ClientFighter.ClientItem:FindFirstChild("ClientViewModel")
+		if m then cvmMod = require(m) end
+	end)
+	if cvmMod and type(cvmMod.new) == "function" then
+		local onew = cvmMod.new
+		cvmMod.new = function(p, o)
+			if not skinOn() then return onew(p, o) end
+			local pl = o.ClientFighter and o.ClientFighter.Player
+			local iname = o.Name
+			if pl == lp and equipMap[iname] and repClass then
+				local m2 = equipMap[iname]
+				local de = repClass:ToEnum("Data")
+				p[de] = p[de] or {}
+				if m2.Skin then p[de][repClass:ToEnum("Skin")] = m2.Skin end
+				if m2.Charm then p[de][repClass:ToEnum("Charm")] = m2.Charm end
+				if m2.Wrap then p[de][repClass:ToEnum("Wrap")] = m2.Wrap end
+			end
+			return onew(p, o)
+		end
+	end
+end
+installSkinHooks()
 
 local espPool = {}
 local BONES = {
@@ -625,6 +854,9 @@ colSec:Colorpicker({Title = "friendly", Flag = "col_friend", Color = colFriend, 
 local misc = Window:Tab("misc")
 local miscSec = misc:Section("misc", "Left")
 Controls.anti_afk = miscSec:Toggle({Title = "anti afk", Flag = "anti_afk", Default = true})
+miscSec:Label("equip skins in the game menu — stays local")
+Controls.skin_unlock = miscSec:Toggle({Title = "unlock all cosmetics", Flag = "skin_unlock", Default = false, Callback = function(v) if v then refreshCosmetics() end end})
+miscSec:Button({Title = "refresh cosmetics", Callback = function() refreshCosmetics() end})
 
 local unloadAll
 local settings = Window:AddSettingsTab(function() if unloadAll then unloadAll() end end)
