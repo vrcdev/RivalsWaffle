@@ -430,14 +430,17 @@ task.spawn(function()
 		task.wait(flag("as_delay", 0.12))
 		if flag("autoshoot", false) then
 			local _, part = pickTarget()
-			if part then
+			if part and math.random(1, 100) <= (flag("aim_chance", CFG.Chance) or 100) then
 				local ftr = localFighter()
 				if ftr then
+					local ok, c, old = false, nil, nil
+					if flag("silent_aim", false) then ok, c, old = flipCam(part.Position) end
 					pcall(function()
 						setthreadidentity(2)
 						ftr:Input("StartShooting")
 						setthreadidentity(7)
 					end)
+					unflipCam(ok, c, old)
 				end
 			end
 		end
