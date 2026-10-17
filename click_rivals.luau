@@ -125,8 +125,17 @@ task.spawn(function()
 	end)
 end)
 
+if getgenv().rvUnload then pcall(getgenv().rvUnload) end
+
 local Library = getgenv().Library or Library
 local Utility = getgenv().Utility
+if Library and Library.SelfDestruct then
+	local __sd = Library.SelfDestruct
+	function Library.SelfDestruct(...)
+		warn("[rv] SelfDestruct called\n" .. debug.traceback("", 2))
+		return __sd(...)
+	end
+end
 if Utility and Utility.AddImage then
 	pcall(function()
 		if makefolder then
@@ -148,11 +157,10 @@ if Utility and Utility.AddImage then
 	end)
 end
 
-local Flags = getgenv().Flags or {}
-getgenv().Flags = Flags
 local Controls = {}
 local function flag(k, d)
-	local v = Flags[k]
+	if not Library or not Library.Flags then return d end
+	local v = Library.Flags[k]
 	if v == nil then return d end
 	return v
 end
@@ -628,7 +636,7 @@ cfgSec:Dropdown({Title = "slot", Flag = "cfg_slot", List = slots, Default = "slo
 cfgSec:Button({Title = "save", Callback = function()
 	pcall(function()
 		local data = {}
-		for k in pairs(Flags) do data[k] = Flags[k] end
+		for k in pairs(Library.Flags) do data[k] = Library.Flags[k] end
 		data._cfg = {FOV = CFG.FOV, Smooth = CFG.Smooth, WallCheck = CFG.WallCheck, AimPart = CFG.AimPart, Chance = CFG.Chance, MaxDist = CFG.MaxDist}
 		data._col = {e = {colEnemy.R * 255, colEnemy.G * 255, colEnemy.B * 255}, f = {colFriend.R * 255, colFriend.G * 255, colFriend.B * 255}}
 		writefile(slotFiles[curSlot], game:GetService("HttpService"):JSONEncode(data))
@@ -648,7 +656,7 @@ cfgSec:Button({Title = "load", Callback = function()
 		end
 		for k, v in pairs(data) do
 			if k ~= "_cfg" and k ~= "_col" then
-				Flags[k] = v
+				Library.Flags[k] = v
 				local c = Controls[k]
 				if c and c.SetValue then pcall(function() c:SetValue(v) end)
 				elseif c and c.Set then pcall(function() c:Set(v) end) end
@@ -680,4 +688,7 @@ conn(uis.InputBegan, function(inp)
 	if inp.KeyCode == Enum.KeyCode.End then unloadAll() end
 end)
 
+getgenv().rvUnload = unloadAll
+
 pcall(function() Window:SwitchTab(combat) end)
+print("[rv] up — drawings:", Library and #Library.Drawings, "tabs:", Window and #Window.Tabs)
