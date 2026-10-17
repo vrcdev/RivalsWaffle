@@ -446,6 +446,68 @@ task.spawn(function()
 	end
 end)
 
+local hbOrig = setmetatable({}, {__mode = "k"})
+task.spawn(function()
+	while not DEAD do
+		task.wait(0.2)
+		local on = flag("hb_expand", false)
+		local scale = flag("hb_scale", 4)
+		for _, p in ipairs(players:GetPlayers()) do
+			local chr = p.Character
+			if p ~= lp and chr then
+				for _, d in ipairs(chr:GetDescendants()) do
+					if d:IsA("BasePart") and d.Name:sub(1, 6) == "Hitbox" then
+						if on and isEnemy(p) then
+							if not hbOrig[d] then hbOrig[d] = d.Size end
+							local want = hbOrig[d] * scale
+							if d.Size ~= want then
+								pcall(function()
+									d.Size = want
+									d.CanCollide = false
+								end)
+							end
+						elseif hbOrig[d] then
+							pcall(function() d.Size = hbOrig[d] end)
+							hbOrig[d] = nil
+						end
+					end
+				end
+			end
+		end
+	end
+	for d, s in pairs(hbOrig) do pcall(function() d.Size = s end) end
+end)
+
+local chamHl = {}
+task.spawn(function()
+	while not DEAD do
+		task.wait(0.25)
+		for _, p in ipairs(players:GetPlayers()) do
+			if p ~= lp then
+				local chr = p.Character
+				local h = chamHl[p]
+				local want = flag("chams", false) and chr ~= nil and alive(p) and isEnemy(p)
+				if want and (not h or h.Parent ~= chr) then
+					if h then pcall(function() h:Destroy() end) end
+					local ok, nh = pcall(Instance.new, "Highlight")
+					if ok and nh then
+						nh.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+						nh.FillTransparency = 0.55
+						nh.OutlineTransparency = 0
+						nh.FillColor = colEnemy
+						nh.OutlineColor = rgb(255, 255, 255)
+						nh.Parent = chr
+						chamHl[p] = nh
+					end
+				elseif not want and h then
+					pcall(function() h:Destroy() end)
+					chamHl[p] = nil
+				end
+			end
+		end
+	end
+end)
+
 local cosLib, enumLib, pdc, repClass
 local function resolveCos()
 	if not cosLib then
@@ -564,13 +626,43 @@ installSkinHooks = function()
 	local oGwd = pdc.GetWeaponData
 	if type(oGwd) == "function" then
 		pdc.GetWeaponData = function(s, name)
-			if not skinOn() then return oGwd(s, name) end
 			local d = oGwd(s, name)
 			if not d then return nil end
+			local patchStats = flag("rapid_fire", false) or flag("no_recoil", false)
+			if not patchStats and not (skinOn() and equipMap[name]) then return d end
 			local o = {}
-			for k, v in pairs(d) do o[k] = v end
+			for k, v in pairs(d) do
+				if type(v) == "table" then
+					local nt = {}
+					for k2, v2 in pairs(v) do nt[k2] = v2 end
+					o[k] = nt
+				else
+					o[k] = v
+				end
+			end
 			o.Name = name
-			if equipMap[name] then for k, v in pairs(equipMap[name]) do o[k] = v end end
+			if skinOn() and equipMap[name] then for k, v in pairs(equipMap[name]) do o[k] = v end end
+			if patchStats then
+				local rf = flag("rf_mult", 0.5)
+				local rfOn, nrOn = flag("rapid_fire", false), flag("no_recoil", false)
+				local function patchNums(t, depth)
+					for k, v in pairs(t) do
+						if type(v) == "number" then
+							local okk, kn = pcall(tostring, k)
+							kn = okk and kn or ""
+							if rfOn and (kn:find("Delay") or kn:find("Interval") or kn:find("Cooldown") or kn:find("Reload") or kn:find("Equip") or kn:find("Rate")) then
+								t[k] = v * rf
+							end
+							if nrOn and (kn:find("Recoil") or kn:find("Kick") or kn:find("Bloom") or kn:find("Spread")) then
+								t[k] = 0
+							end
+						elseif type(v) == "table" and depth < 2 then
+							patchNums(v, depth + 1)
+						end
+					end
+				end
+				patchNums(o, 0)
+			end
 			return o
 		end
 	end
@@ -714,6 +806,34 @@ local function hideESP(e)
 	for _, l in ipairs(e.skel) do l.Visible = false end
 end
 
+local specText = dw("Text", {Size = 14, Center = true, Outline = true, Color = rgb(255, 80, 80)})
+specText.Visible = false
+local SPEC_ATTRS = {"Spectating", "IsSpectating", "Spectator", "InSpectate", "SpectateTarget"}
+task.spawn(function()
+	while not DEAD do
+		task.wait(0.5)
+		if flag("spec_list", false) then
+			local names = {}
+			for _, p in ipairs(players:GetPlayers()) do
+				if p ~= lp then
+					local spec = false
+					for _, a in ipairs(SPEC_ATTRS) do
+						if p:GetAttribute(a) == true then spec = true break end
+					end
+					if not spec and not p.Character then spec = true end
+					if spec then table.insert(names, p.Name) end
+				end
+			end
+			specText.Text = #names > 0 and ("watching: " .. table.concat(names, ", ")) or ""
+			local c = cam()
+			if c then specText.Position = vec2(c.ViewportSize.X / 2, 40) end
+			specText.Visible = #names > 0
+		else
+			specText.Visible = false
+		end
+	end
+end)
+
 conn(run.RenderStepped, function()
 	if DEAD then return end
 	for _, p in ipairs(players:GetPlayers()) do
@@ -856,6 +976,11 @@ Controls.cam_aim = camSec:Toggle({Title = "enabled (hold M2)", Flag = "cam_aim",
 camSec:Slider({Title = "smoothing", Flag = "aim_smooth", Min = 0, Max = 0.95, Default = 0.3, Decimals = 100, Callback = function(v) CFG.Smooth = v end})
 Controls.team_check = camSec:Toggle({Title = "team check", Flag = "team_check", Default = true})
 
+local hbSec = combat:Section("hitbox", "Right")
+Controls.hb_expand = hbSec:Toggle({Title = "expander", Flag = "hb_expand", Default = false})
+hbSec:Label("inflates enemy hitboxes locally")
+hbSec:Slider({Title = "scale", Flag = "hb_scale", Min = 1, Max = 15, Default = 4, Decimals = 1})
+
 local tbSec = combat:Section("triggerbot", "Right")
 Controls.triggerbot = tbSec:Toggle({Title = "enabled", Flag = "triggerbot", Default = false})
 Controls.tb_team = tbSec:Toggle({Title = "team check", Flag = "tb_team", Default = true})
@@ -863,6 +988,9 @@ tbSec:Slider({Title = "delay", Flag = "tb_delay", Min = 0.02, Max = 0.6, Default
 
 local gunSec = combat:Section("weapon", "Left")
 Controls.no_spread = gunSec:Toggle({Title = "no spread", Flag = "no_spread", Default = false})
+Controls.rapid_fire = gunSec:Toggle({Title = "rapid fire", Flag = "rapid_fire", Default = false})
+gunSec:Slider({Title = "fire rate mult", Flag = "rf_mult", Min = 0.1, Max = 1, Default = 0.5, Decimals = 100})
+Controls.no_recoil = gunSec:Toggle({Title = "no recoil", Flag = "no_recoil", Default = false})
 
 local vis = Window:Tab("visuals")
 local espSec = vis:Section("esp", "Left")
@@ -875,6 +1003,7 @@ Controls.esp_skel = espSec:Toggle({Title = "skeleton", Flag = "esp_skel", Defaul
 Controls.esp_tracer = espSec:Toggle({Title = "tracers", Flag = "esp_tracer", Default = false})
 Controls.esp_arrow = espSec:Toggle({Title = "offscreen arrows", Flag = "esp_arrow", Default = false})
 Controls.esp_team = espSec:Toggle({Title = "hide teammates", Flag = "esp_team", Default = true})
+Controls.chams = espSec:Toggle({Title = "chams", Flag = "chams", Default = false})
 
 local colSec = vis:Section("colors", "Right")
 colSec:Colorpicker({Title = "enemy", Flag = "col_enemy", Color = colEnemy, Callback = function(v) colEnemy = v end})
@@ -886,6 +1015,7 @@ Controls.anti_afk = miscSec:Toggle({Title = "anti afk", Flag = "anti_afk", Defau
 miscSec:Label("equip skins in the game menu — stays local")
 Controls.skin_unlock = miscSec:Toggle({Title = "unlock all cosmetics", Flag = "skin_unlock", Default = false, Callback = function(v) if v then refreshCosmetics() end end})
 miscSec:Button({Title = "refresh cosmetics", Callback = function() refreshCosmetics() end})
+Controls.spec_list = miscSec:Toggle({Title = "spectator list", Flag = "spec_list", Default = false})
 
 local unloadAll
 local settings = Window:AddSettingsTab(function() if unloadAll then unloadAll() end end)
@@ -939,7 +1069,10 @@ unloadAll = function()
 		pcall(function() e.tracer:Remove() end) pcall(function() e.arrow:Remove() end)
 		for _, l in ipairs(e.skel) do pcall(function() l:Remove() end) end
 	end
+	for d, s in pairs(hbOrig) do pcall(function() d.Size = s end) end
+	for p, h in pairs(chamHl) do pcall(function() h:Destroy() end) chamHl[p] = nil end
 	pcall(function() fovCircle:Remove() end)
+	pcall(function() specText:Remove() end)
 	pcall(function() Library.SelfDestruct() end)
 end
 
