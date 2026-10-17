@@ -428,13 +428,12 @@ end)
 task.spawn(function()
 	while not DEAD do
 		task.wait(flag("as_delay", 0.12))
-		if flag("autoshoot", false) then
+		if flag("autoshoot", false) and flag("silent_aim", false) then
 			local _, part = pickTarget()
 			if part and rayVisible(part) and math.random(1, 100) <= (flag("aim_chance", CFG.Chance) or 100) then
 				local ftr = localFighter()
 				if ftr then
-					local ok, c, old = false, nil, nil
-					if flag("silent_aim", false) then ok, c, old = flipCam(part.Position) end
+					local ok, c, old = flipCam(part.Position)
 					pcall(function()
 						setthreadidentity(2)
 						ftr:Input("StartShooting")
@@ -848,16 +847,14 @@ aimSec:Slider({Title = "max dist", Flag = "aim_dist", Min = 50, Max = 2500, Defa
 Controls.fov_circle = aimSec:Toggle({Title = "show fov", Flag = "fov_circle", Default = false})
 Controls.wall_check = aimSec:Toggle({Title = "wall check", Flag = "wall_check", Default = true, Callback = function(v) CFG.WallCheck = v end})
 Controls.shot_debug = aimSec:Toggle({Title = "shot debug", Flag = "shot_debug", Default = false})
+Controls.autoshoot = aimSec:Toggle({Title = "auto fire", Flag = "autoshoot", Default = false})
+aimSec:Label("auto fires on visible locks")
+aimSec:Slider({Title = "auto delay", Flag = "as_delay", Min = 0.03, Max = 0.5, Default = 0.12, Decimals = 2})
 
 local camSec = combat:Section("camera aim", "Right")
 Controls.cam_aim = camSec:Toggle({Title = "enabled (hold M2)", Flag = "cam_aim", Default = false})
 camSec:Slider({Title = "smoothing", Flag = "aim_smooth", Min = 0, Max = 0.95, Default = 0.3, Decimals = 100, Callback = function(v) CFG.Smooth = v end})
 Controls.team_check = camSec:Toggle({Title = "team check", Flag = "team_check", Default = true})
-
-local asSec = combat:Section("auto shoot", "Right")
-Controls.autoshoot = asSec:Toggle({Title = "enabled", Flag = "autoshoot", Default = false})
-asSec:Label("fires when a target is locked")
-asSec:Slider({Title = "delay", Flag = "as_delay", Min = 0.03, Max = 0.5, Default = 0.12, Decimals = 2})
 
 local tbSec = combat:Section("triggerbot", "Right")
 Controls.triggerbot = tbSec:Toggle({Title = "enabled", Flag = "triggerbot", Default = false})
