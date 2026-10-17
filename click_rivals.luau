@@ -390,24 +390,26 @@ end)
 task.spawn(function()
 	while not DEAD do
 		task.wait(0.05)
-		if not flag("triggerbot", false) then continue end
-		local c = cam()
-		if not c then continue end
-		local hit = ws:FindPartOnRayWithIgnoreList(Ray.new(c.CFrame.Position, c.CFrame.LookVector * 2500), {lp.Character})
-		if hit and hit.Parent then
-			local hum = hit.Parent:FindFirstChildWhichIsA("Humanoid")
-			local pl = players:GetPlayerFromCharacter(hit.Parent)
-			local friendly = flag("tb_team", true) and pl and pl:GetAttribute("TeamID") ~= nil and pl:GetAttribute("TeamID") == myTeam()
-			if hum and hum.Health > 0 and not friendly then
-				local ftr = localFighter()
-				if ftr then
-					pcall(function()
-						setthreadidentity(2)
-						ftr:Input("StartShooting")
-						setthreadidentity(7)
-					end)
+		if flag("triggerbot", false) then
+			local c = cam()
+			if c then
+				local hit = ws:FindPartOnRayWithIgnoreList(Ray.new(c.CFrame.Position, c.CFrame.LookVector * 2500), {lp.Character})
+				if hit and hit.Parent then
+					local hum = hit.Parent:FindFirstChildWhichIsA("Humanoid")
+					local pl = players:GetPlayerFromCharacter(hit.Parent)
+					local friendly = flag("tb_team", true) and pl and pl:GetAttribute("TeamID") ~= nil and pl:GetAttribute("TeamID") == myTeam()
+					if hum and hum.Health > 0 and not friendly then
+						local ftr = localFighter()
+						if ftr then
+							pcall(function()
+								setthreadidentity(2)
+								ftr:Input("StartShooting")
+								setthreadidentity(7)
+							end)
+						end
+						task.wait(flag("tb_delay", 0.1))
+					end
 				end
-				task.wait(flag("tb_delay", 0.1))
 			end
 		end
 	end
