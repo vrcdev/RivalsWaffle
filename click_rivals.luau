@@ -430,7 +430,7 @@ task.spawn(function()
 		task.wait(flag("as_delay", 0.12))
 		if flag("autoshoot", false) then
 			local _, part = pickTarget()
-			if part and math.random(1, 100) <= (flag("aim_chance", CFG.Chance) or 100) then
+			if part and rayVisible(part) and math.random(1, 100) <= (flag("aim_chance", CFG.Chance) or 100) then
 				local ftr = localFighter()
 				if ftr then
 					local ok, c, old = false, nil, nil
