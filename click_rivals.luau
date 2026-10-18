@@ -1,3 +1,7 @@
+for i = 1, 900 do
+	if game:IsLoaded() and game:GetService("Players").LocalPlayer then break end
+	task.wait(0.1)
+end
 local uis = game:GetService("UserInputService")
 local players = game:GetService("Players")
 local ws = game:GetService("Workspace")
