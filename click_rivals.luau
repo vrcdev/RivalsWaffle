@@ -1037,10 +1037,10 @@ cfgSec:Button({Title = "save", Callback = function()
 		writefile(slotFiles[curSlot], game:GetService("HttpService"):JSONEncode(data))
 	end)
 end})
-cfgSec:Button({Title = "load", Callback = function()
+local function loadSlot(file)
 	pcall(function()
-		if not isfile(slotFiles[curSlot]) then return end
-		local data = game:GetService("HttpService"):JSONDecode(readfile(slotFiles[curSlot]))
+		if not isfile(file) then return end
+		local data = game:GetService("HttpService"):JSONDecode(readfile(file))
 		if data._cfg then
 			CFG.FOV = data._cfg.FOV CFG.Smooth = data._cfg.Smooth CFG.WallCheck = data._cfg.WallCheck
 			CFG.AimPart = data._cfg.AimPart CFG.Chance = data._cfg.Chance CFG.MaxDist = data._cfg.MaxDist or CFG.MaxDist
@@ -1058,7 +1058,8 @@ cfgSec:Button({Title = "load", Callback = function()
 			end
 		end
 	end)
-end})
+end
+cfgSec:Button({Title = "load", Callback = function() loadSlot(slotFiles[curSlot]) end})
 unloadAll = function()
 	if DEAD then return end
 	DEAD = true
@@ -1089,4 +1090,5 @@ end)
 getgenv().rvUnload = unloadAll
 
 pcall(function() Window:SwitchTab(combat) end)
+if isfile(slotFiles["slot 1"]) then loadSlot(slotFiles["slot 1"]) end
 print("[rv] up — drawings:", Library and #Library.Drawings, "tabs:", Window and #Window.Tabs)
