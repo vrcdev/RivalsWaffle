@@ -329,15 +329,29 @@ do
     end
     --
     Utility.AddImage = function(Image, Url, UI)
-        local ImageFile = nil
-        --
-        if isfile(Image) then
-            ImageFile = readfile(Image)
-        else
-            ImageFile = game:HttpGet(Url)
-            writefile(Image, ImageFile)
+        local function ValidImage(D)
+            return type(D) == "string" and #D > 8 and (D:sub(1, 4) == "\137PNG" or D:sub(1, 3) == "\255\216\255")
         end
         --
+        if isfile(Image) then
+            local Cached = readfile(Image)
+            if ValidImage(Cached) then return Cached end
+            pcall(delfile, Image)
+        end
+        --
+        local ImageFile = nil
+        local ok, res = pcall(function() return game:HttpGet(Url) end)
+        if ok and ValidImage(res) then ImageFile = res end
+        if not ImageFile and httpget then
+            local ok2, res2 = pcall(httpget, Url)
+            if ok2 and ValidImage(res2) then ImageFile = res2 end
+        end
+        if not ImageFile and request then
+            local ok3, res3 = pcall(request, {Url = Url, Method = "GET"})
+            if ok3 and type(res3) == "table" and ValidImage(res3.Body) then ImageFile = res3.Body end
+        end
+        --
+        if ImageFile then pcall(writefile, Image, ImageFile) end
         return ImageFile
     end
 end
@@ -856,14 +870,21 @@ do
         --
         Window["PageCover"] = SecondBorderInline
         --
+        local AnimeUrls = {
+            Astolfo = "https://i.imgur.com/T20cWY9.png",
+            Aiko = "https://i.imgur.com/1gRIdko.png",
+            Rem = "https://i.imgur.com/ykbRkhJ.png",
+            Violet = "https://i.imgur.com/7B56w4a.png",
+            Asuka = "https://i.imgur.com/3hwztNM.png",
+        }
+        --
         function Window.ChangeAnime(Name)
-            Anime.Data = (
-                Name == "Astolfo" and Library.Theme.Astolfo or
-                Name == "Aiko" and Library.Theme.Aiko or
-                Name == "Rem" and Library.Theme.Rem or
-                Name == "Violet" and Library.Theme.Violet or
-                Name == "Asuka" and Library.Theme.Asuka
-            )
+            if not Library.Theme[Name] and AnimeUrls[Name] then
+                Library.Theme[Name] = Utility.AddImage("Abyss/Assets/UI/" .. Name .. ".png", AnimeUrls[Name])
+            end
+            if Library.Theme[Name] then
+                Anime.Data = Library.Theme[Name]
+            end
 
             Anime.Size = (
                 Name == "Astolfo" and Vector2.new(412, 605) or

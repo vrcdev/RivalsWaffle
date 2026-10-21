@@ -536,7 +536,7 @@ end
 
 local COSMETIC_TYPES = {Skin = true, Wrap = true, Charm = true, Dance = true, Emote = true, Finisher = true, Arm = true, DeathEffect = true, KillEffect = true}
 local function skinOK(c) return c ~= nil and COSMETIC_TYPES[c.Type] == true end
-local equipMap, favMap = {}, {}
+local equipMap, favMap, lastUseWep = {}, {}, nil
 local function makeCosmetic(name, slotType, opts)
 	local c = cosLib and cosLib.Cosmetics and cosLib.Cosmetics[name]
 	if not c then return nil end
@@ -674,10 +674,26 @@ installSkinHooks = function()
 	local dataR = remotes and remotes:FindFirstChild("Data")
 	local equipR = dataR and dataR:FindFirstChild("EquipCosmetic")
 	local favR = dataR and dataR:FindFirstChild("FavoriteCosmetic")
+	local replR = remotes and remotes:FindFirstChild("Replication")
+	local fightR = replR and replR:FindFirstChild("Fighter")
+	local useItemR = fightR and fightR:FindFirstChild("UseItem")
 	if equipR and hookmetamethod and getnamecallmethod and newcclosure then
 		local on = nil
 		on = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
 			if not skinOn() or getnamecallmethod() ~= "FireServer" then return on(self, ...) end
+			if self == useItemR then
+				local ua = {...}
+				local fc = getFighterCtl()
+				if fc then pcall(function()
+					local f = fc:GetFighter(lp)
+					if f and f.Items then
+						for _, itm in pairs(f.Items) do
+							if itm:Get("ObjectID") == ua[1] then lastUseWep = itm.Name break end
+						end
+					end
+				end) end
+				return on(self, ...)
+			end
 			if self == equipR then
 				local a = {...}
 				local w, slot, cname, opts = a[1], a[2], a[3], a[4] or {}
@@ -760,15 +776,33 @@ installSkinHooks = function()
 			if not skinOn() then return onew(p, o) end
 			local pl = o.ClientFighter and o.ClientFighter.Player
 			local iname = o.Name
-			if pl == lp and equipMap[iname] and repClass then
-				local m2 = equipMap[iname]
+			local m2 = equipMap[iname] or (lastUseWep and equipMap[lastUseWep])
+			if pl == lp and m2 and repClass then
 				local de = repClass:ToEnum("Data")
 				p[de] = p[de] or {}
 				if m2.Skin then p[de][repClass:ToEnum("Skin")] = m2.Skin end
 				if m2.Charm then p[de][repClass:ToEnum("Charm")] = m2.Charm end
 				if m2.Wrap then p[de][repClass:ToEnum("Wrap")] = m2.Wrap end
 			end
-			return onew(p, o)
+			local res = onew(p, o)
+			if pl == lp and m2 and m2.Wrap and res and res._UpdateWrap then
+				pcall(function() res:_UpdateWrap() end)
+				task.delay(0.1, function() pcall(function() if res._UpdateWrap then res:_UpdateWrap() end end) end)
+			end
+			return res
+		end
+	end
+	if cvmMod and type(cvmMod.GetWrap) == "function" then
+		local ogw = cvmMod.GetWrap
+		cvmMod.GetWrap = function(self)
+			if skinOn() then
+				local ci = self.ClientItem
+				local wname = ci and ci.Name
+				local wplr = ci and ci.ClientFighter and ci.ClientFighter.Player
+				local weq = wplr == lp and ((wname and equipMap[wname]) or (lastUseWep and equipMap[lastUseWep]))
+				if weq and weq.Wrap then return weq.Wrap end
+			end
+			return ogw(self)
 		end
 	end
 end
