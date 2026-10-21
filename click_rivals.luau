@@ -444,7 +444,7 @@ end
 local wrapped = {}
 local reentr = setmetatable({}, {__mode = "k"})
 local lastShot, lastUseT = nil, nil
-local rfTest = {on = false, shots = 0, inbound = {}}
+local rfTest = {on = false, shots = 0, inbound = {}, out = {}}
 local function wrapClass(cls)
 	if not cls or type(cls.StartShooting) ~= "function" or wrapped[cls] then return end
 	local orig = cls.StartShooting
@@ -867,7 +867,14 @@ installSkinHooks = function()
 	if equipR and hookmetamethod and getnamecallmethod and newcclosure then
 		local on = nil
 		on = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-			if getnamecallmethod() ~= "FireServer" then return on(self, ...) end
+			local nm = getnamecallmethod()
+			if rfTest.on and (nm == "FireServer" or nm == "InvokeServer") then
+				pcall(function()
+					local n = tostring(self and self.GetFullName and self:GetFullName() or self) .. ":" .. nm
+					rfTest.out[n] = (rfTest.out[n] or 0) + 1
+				end)
+			end
+			if nm ~= "FireServer" then return on(self, ...) end
 			if self == useItemR then
 				local ua = {...}
 				lastUseT = os.clock()
@@ -1241,11 +1248,18 @@ Controls.no_recoil = gunSec:Toggle({Title = "no recoil", Flag = "no_recoil", Def
 gunSec:Button({Title = "fire rate test (hold fire 5s)", Callback = function()
 	rfTest.shots = 0
 	table.clear(rfTest.inbound)
+	table.clear(rfTest.out)
 	rfTest.on = true
 	print("[rv] fire test armed - hold fire for 5 seconds")
 	task.delay(5, function()
 		rfTest.on = false
 		local lines = {"[rv] outbound UseItem: " .. rfTest.shots .. " -> " .. string.format("%.1f", rfTest.shots / 5) .. "/s"}
+		local so = {}
+		for n, c in pairs(rfTest.out) do so[#so + 1] = {n = n, c = c} end
+		table.sort(so, function(a, b) return a.c > b.c end)
+		for i = 1, math.min(15, #so) do
+			lines[#lines + 1] = "[rv] out " .. so[i].n .. " x" .. so[i].c
+		end
 		local sorted = {}
 		for n, c in pairs(rfTest.inbound) do sorted[#sorted + 1] = {n = n, c = c} end
 		table.sort(sorted, function(a, b) return a.c > b.c end)
