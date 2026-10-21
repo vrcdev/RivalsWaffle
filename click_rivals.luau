@@ -216,7 +216,7 @@ local function aimPart(p)
 	return c:FindFirstChild(CFG.AimPart) or c:FindFirstChild("HitboxHead") or c:FindFirstChild("Head") or c:FindFirstChild("HumanoidRootPart")
 end
 
-local getFighterCtl
+local getFighterCtl, repClass
 local itemLib, itemOrig = nil, {}
 local itemInstOrig = setmetatable({}, {__mode = "k"})
 local function getItemLib()
@@ -283,17 +283,25 @@ function patchItems()
 	local f
 	local fc = getFighterCtl and getFighterCtl()
 	if fc then pcall(function() f = fc:GetFighter(lp) end) end
+	local live = 0
 	if f and f.Items then
 		for _, itm in pairs(f.Items) do
 			pcall(function()
-				local d = itm:Get("Data") or rawget(itm, "Data")
+				local d
+				pcall(function() d = itm:Get("Data") end)
+				if type(d) ~= "table" and repClass then
+					pcall(function() d = itm:Get(repClass:ToEnum("Data")) end)
+				end
+				if type(d) ~= "table" then d = rawget(itm, "Data") end
 				if type(d) == "table" then
 					itemInstOrig[itm] = itemInstOrig[itm] or {}
 					patchTable(d, itemInstOrig[itm])
+					live = live + 1
 				end
 			end)
 		end
 	end
+	if dbg then print("[rv] items patched:", shown > 0 and "lib" or 0, "| live instances:", live) end
 end
 
 local visParams = RaycastParams.new()
@@ -699,7 +707,7 @@ task.spawn(function()
 	end
 end)
 
-local cosLib, enumLib, pdc, repClass
+local cosLib, enumLib, pdc
 local function resolveCos()
 	if not cosLib then
 		local mods = rs:FindFirstChild("Modules")
