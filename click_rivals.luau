@@ -1245,13 +1245,16 @@ gunSec:Button({Title = "fire rate test (hold fire 5s)", Callback = function()
 	print("[rv] fire test armed - hold fire for 5 seconds")
 	task.delay(5, function()
 		rfTest.on = false
-		print("[rv] outbound UseItem:", rfTest.shots, "->", string.format("%.1f", rfTest.shots / 5), "/s")
+		local lines = {"[rv] outbound UseItem: " .. rfTest.shots .. " -> " .. string.format("%.1f", rfTest.shots / 5) .. "/s"}
 		local sorted = {}
 		for n, c in pairs(rfTest.inbound) do sorted[#sorted + 1] = {n = n, c = c} end
 		table.sort(sorted, function(a, b) return a.c > b.c end)
 		for i = 1, math.min(12, #sorted) do
-			print("[rv] inbound", sorted[i].n, "x" .. sorted[i].c)
+			lines[#lines + 1] = "[rv] inbound " .. sorted[i].n .. " x" .. sorted[i].c
 		end
+		local report = table.concat(lines, "\n")
+		print(report)
+		if setclipboard then pcall(setclipboard, report) print("[rv] report copied to clipboard") end
 	end)
 end})
 
