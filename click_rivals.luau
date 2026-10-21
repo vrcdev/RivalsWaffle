@@ -312,6 +312,8 @@ local function rescanTargets()
 	table.clear(targetParts)
 	for _, d in ipairs(ws:GetDescendants()) do
 		if d:IsA("BasePart") then
+			local sz = d.Size
+			if math.max(sz.X, sz.Y, sz.Z) > 20 then continue end
 			local n = string.lower(d.Name)
 			local hit = n:find("target") ~= nil or n:find("dummy") ~= nil
 			if not hit then
@@ -320,7 +322,10 @@ local function rescanTargets()
 					if not par or par == ws then break end
 					local pn = string.lower(par.Name)
 					if pn:find("target") or pn:find("dummy") then hit = true break end
-					if par:IsA("Model") and par:FindFirstChildWhichIsA("Humanoid") and not players:GetPlayerFromCharacter(par) then hit = true break end
+					if par:IsA("Model") and par:FindFirstChildWhichIsA("Humanoid") and not players:GetPlayerFromCharacter(par) then
+						if n == "hitboxhead" or n == "head" or n == "humanoidrootpart" or n:find("hitbox") then hit = true end
+						break
+					end
 					par = par.Parent
 				end
 			end
@@ -432,7 +437,7 @@ end
 
 local wrapped = {}
 local reentr = setmetatable({}, {__mode = "k"})
-local lastShot = nil
+local lastShot, lastUseT = nil, nil
 local function wrapClass(cls)
 	if not cls or type(cls.StartShooting) ~= "function" or wrapped[cls] then return end
 	local orig = cls.StartShooting
@@ -498,11 +503,17 @@ conn(ws.DescendantAdded, function(inst)
 		if DEAD or not inst.Parent then return end
 		local p = inst:IsA("BasePart") and inst or (inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true))
 		if not p or not p.Parent or p.Anchored then return end
+		if inst:IsA("Model") and inst:FindFirstChildWhichIsA("Humanoid") then return end
+		local sz = p.Size
+		if math.max(sz.X, sz.Y, sz.Z) > 12 then return end
 		local ok, dist = pcall(function() return (p.Position - hrp.Position).Magnitude end)
 		if not ok or dist >= 80 then return end
+		local now = os.clock()
+		local armed = (lastShot and now - lastShot.t <= 0.5) or (lastUseT and now - lastUseT <= 0.6)
+		if not armed then return end
 		local tp
 		local shot = lastShot
-		if shot and os.clock() - shot.t <= 0.5 and shot.part and shot.part.Parent then
+		if shot and now - shot.t <= 0.5 and shot.part and shot.part.Parent then
 			tp = shot.part
 		elseif flag("silent_aim", false) then
 			local _, part = pickTarget()
@@ -848,9 +859,10 @@ installSkinHooks = function()
 	if equipR and hookmetamethod and getnamecallmethod and newcclosure then
 		local on = nil
 		on = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-			if not skinOn() or getnamecallmethod() ~= "FireServer" then return on(self, ...) end
+			if getnamecallmethod() ~= "FireServer" then return on(self, ...) end
 			if self == useItemR then
 				local ua = {...}
+				lastUseT = os.clock()
 				local fc = getFighterCtl()
 				if fc then pcall(function()
 					local f = fc:GetFighter(lp)
@@ -862,6 +874,7 @@ installSkinHooks = function()
 				end) end
 				return on(self, ...)
 			end
+			if not skinOn() then return on(self, ...) end
 			if self == equipR then
 				local a = {...}
 				local w, slot, cname, opts = a[1], a[2], a[3], a[4] or {}
