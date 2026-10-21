@@ -482,6 +482,7 @@ task.spawn(function()
 	while not DEAD do
 		task.wait(2)
 		ensureHooks()
+		pcall(patchItems)
 		if flag("aim_dummies", false) then pcall(rescanTargets) end
 	end
 end)
