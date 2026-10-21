@@ -2326,8 +2326,8 @@ do
                     function Slider:Set(GetValue, ConvertToMin)
                         if GetValue > Slider.Max then return end
                         if GetValue < Slider.Min then return end
-                        
-                        local Bracket = 1 / Slider.Decimals
+
+                        local Bracket = Slider.Decimals
                         local DecimalsCon = math.clamp(math.round(GetValue * Bracket) / Bracket, Slider.Min, Slider.Max)
                         local Percent = 1 - ((Slider.Max - DecimalsCon) / (Slider.Max - Slider.Min))
                         SliderBar.Size = Vector2.new(SliderOutline.Size.X * Percent, SliderOutline.Size.Y)
@@ -2364,7 +2364,7 @@ do
     
                     function Slider:Refresh()
                         local Percent = math.clamp((Mouse.X - SliderOutline.Position.X) / (SliderOutline.Size.X), 0, 1)
-                        local Bracket = 1 / Slider.Decimals
+                        local Bracket = Slider.Decimals
                         local Value = math.floor((Slider.Min + (Slider.Max - Slider.Min) * Percent) * Bracket) / Bracket
                         Value = math.clamp(Value, Slider.Min, Slider.Max)
                         Slider:Set(Value)
