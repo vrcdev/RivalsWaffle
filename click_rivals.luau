@@ -216,6 +216,41 @@ local function aimPart(p)
 	return c:FindFirstChild(CFG.AimPart) or c:FindFirstChild("HitboxHead") or c:FindFirstChild("Head") or c:FindFirstChild("HumanoidRootPart")
 end
 
+local itemLib, itemOrig = nil, {}
+local function getItemLib()
+	if itemLib then return itemLib end
+	local mods = rs:FindFirstChild("Modules")
+	local m = mods and mods:FindFirstChild("ItemLibrary")
+	if m then local ok, t = pcall(require, m) if ok then itemLib = t end end
+	return itemLib
+end
+local function patchItems()
+	local il = getItemLib()
+	if not il or type(il.Items) ~= "table" then return end
+	local rf = flag("rf_mult", 0.5)
+	local rfOn, nrOn, nsOn = flag("rapid_fire", false), flag("no_recoil", false), flag("no_spread", false)
+	for name, data in pairs(il.Items) do
+		if type(data) == "table" then
+			itemOrig[name] = itemOrig[name] or {}
+			local orig = itemOrig[name]
+			for k, v in pairs(data) do
+				if type(v) == "number" and orig[k] == nil then orig[k] = v end
+			end
+			for k, v in pairs(orig) do
+				if rfOn and (k:find("Cooldown") or k:find("Delay") or k:find("Interval") or k:find("Rate") or k:find("Reload") or k:find("Equip") or k:find("Recovery") or k:find("Reset")) then
+					data[k] = v * rf
+				elseif nrOn and (k:find("Recoil") or k:find("Kick")) then
+					data[k] = 0
+				elseif nsOn and (k:find("Spread") or k:find("Accuracy") or k:find("Bloom")) then
+					data[k] = 0
+				else
+					data[k] = v
+				end
+			end
+		end
+	end
+end
+
 local visParams = RaycastParams.new()
 visParams.FilterType = Enum.RaycastFilterType.Exclude
 local function rayVisible(part)
@@ -1076,10 +1111,10 @@ Controls.tb_team = tbSec:Toggle({Title = "team check", Flag = "tb_team", Default
 tbSec:Slider({Title = "delay", Flag = "tb_delay", Min = 0.02, Max = 0.6, Default = 0.1, Decimals = 100})
 
 local gunSec = combat:Section("weapon", "Left")
-Controls.no_spread = gunSec:Toggle({Title = "no spread", Flag = "no_spread", Default = false})
-Controls.rapid_fire = gunSec:Toggle({Title = "rapid fire", Flag = "rapid_fire", Default = false})
-gunSec:Slider({Title = "fire rate mult", Flag = "rf_mult", Min = 0.1, Max = 1, Default = 0.5, Decimals = 100})
-Controls.no_recoil = gunSec:Toggle({Title = "no recoil", Flag = "no_recoil", Default = false})
+Controls.no_spread = gunSec:Toggle({Title = "no spread", Flag = "no_spread", Default = false, Callback = function() patchItems() end})
+Controls.rapid_fire = gunSec:Toggle({Title = "rapid fire", Flag = "rapid_fire", Default = false, Callback = function() patchItems() end})
+gunSec:Slider({Title = "fire rate mult", Flag = "rf_mult", Min = 0.1, Max = 1, Default = 0.5, Decimals = 100, Callback = function() patchItems() end})
+Controls.no_recoil = gunSec:Toggle({Title = "no recoil", Flag = "no_recoil", Default = false, Callback = function() patchItems() end})
 
 local vis = Window:Tab("visuals")
 local espSec = vis:Section("esp", "Left")
@@ -1176,4 +1211,6 @@ getgenv().rvUnload = unloadAll
 
 pcall(function() Window:SwitchTab(combat) end)
 if isfile(slotFiles["slot 1"]) then loadSlot(slotFiles["slot 1"]) end
+patchItems()
+task.delay(5, patchItems)
 print("[rv] up — drawings:", Library and #Library.Drawings, "tabs:", Window and #Window.Tabs)
