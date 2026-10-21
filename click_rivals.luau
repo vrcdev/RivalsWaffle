@@ -452,7 +452,55 @@ end
 local wrapped = {}
 local reentr = setmetatable({}, {__mode = "k"})
 local lastShot, lastUseT = nil, nil
-local rfTest = {on = false, shots = 0, inbound = {}, out = {}, calls = 0, methods = {}}
+local rfTest = {on = false, shots = 0, inbound = {}, out = {}, calls = 0, methods = {}, pkts = 0}
+local sniffedPkts = {}
+local function sniffPackets()
+	local readUps = rawget(getgenv and getgenv() or _G, "readUpvalues") or getupvalues
+	if type(readUps) ~= "function" then print("[rv] no upvalue reader on this exec") return 0 end
+	local found, seenFn, seenT = 0, {}, {}
+	local function scanFn(fn, tag, depth)
+		if type(fn) ~= "function" or seenFn[fn] or depth > 3 then return end
+		seenFn[fn] = true
+		local ok, ups = pcall(readUps, fn)
+		if not ok or type(ups) ~= "table" then return end
+		for i, v in pairs(ups) do
+			if type(v) == "table" and not seenT[v] then
+				seenT[v] = true
+				if type(rawget(v, "send")) == "function" and (rawget(v, "reader") or rawget(v, "listen")) then
+					found = found + 1
+					if not sniffedPkts[v] then
+						local osend = rawget(v, "send")
+						sniffedPkts[v] = osend
+						rawset(v, "send", function(...)
+							if rfTest.on then rfTest.pkts = rfTest.pkts + 1 end
+							return osend(...)
+						end)
+					end
+					print("[rv] packet found:", tag, "up#" .. i)
+				end
+			elseif type(v) == "function" then
+				scanFn(v, tag .. ".up" .. i, depth + 1)
+			end
+		end
+	end
+	for _, name in ipairs({"Gun", "Melee", "Gunblade", "ClientItem", "Bow", "Crossbow", "Slingshot", "RPG"}) do
+		local c = resolveClass(name)
+		if c then
+			for k, v in pairs(c) do scanFn(v, name .. "." .. tostring(k), 0) end
+		end
+	end
+	local ftr = localFighter and localFighter()
+	if ftr and ftr.Items then
+		for _, itm in pairs(ftr.Items) do
+			local mt = getmetatable(itm)
+			for k, v in pairs(mt and rawget(mt, "__index") or itm) do
+				scanFn(v, "item." .. tostring(k), 0)
+			end
+		end
+	end
+	print("[rv] packets found:", found)
+	return found
+end
 local function wrapClass(cls)
 	if not cls or type(cls.StartShooting) ~= "function" or wrapped[cls] then return end
 	local orig = cls.StartShooting
@@ -1257,9 +1305,14 @@ Controls.no_spread = gunSec:Toggle({Title = "no spread", Flag = "no_spread", Def
 Controls.rapid_fire = gunSec:Toggle({Title = "rapid fire", Flag = "rapid_fire", Default = false, Callback = function() patchItems() end})
 gunSec:Slider({Title = "fire rate mult", Flag = "rf_mult", Min = 0.1, Max = 1, Default = 0.5, Decimals = 100, Callback = function() patchItems() end})
 Controls.no_recoil = gunSec:Toggle({Title = "no recoil", Flag = "no_recoil", Default = false, Callback = function() patchItems() end})
+gunSec:Button({Title = "sniff shot packets", Callback = function()
+	local n = sniffPackets()
+	print("[rv] sniff done ->", n)
+end})
 gunSec:Button({Title = "fire rate test (hold fire 5s)", Callback = function()
 	rfTest.shots = 0
 	rfTest.calls = 0
+	rfTest.pkts = 0
 	table.clear(rfTest.inbound)
 	table.clear(rfTest.out)
 	table.clear(rfTest.methods)
@@ -1267,7 +1320,7 @@ gunSec:Button({Title = "fire rate test (hold fire 5s)", Callback = function()
 	print("[rv] fire test armed - hold fire for 5 seconds")
 	task.delay(5, function()
 		rfTest.on = false
-		local lines = {"[rv] namecalls total: " .. rfTest.calls}
+		local lines = {"[rv] namecalls total: " .. rfTest.calls, "[rv] packet sends: " .. rfTest.pkts}
 		local ms = {}
 		for n, c in pairs(rfTest.methods) do ms[#ms + 1] = n .. " x" .. c end
 		lines[#lines + 1] = "[rv] methods: " .. table.concat(ms, " | ")
