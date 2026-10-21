@@ -315,6 +315,7 @@ end
 
 local wrapped = {}
 local reentr = setmetatable({}, {__mode = "k"})
+local lastShot = nil
 local function wrapClass(cls)
 	if not cls or type(cls.StartShooting) ~= "function" or wrapped[cls] then return end
 	local orig = cls.StartShooting
@@ -329,6 +330,7 @@ local function wrapClass(cls)
 				local tp, part = pickTarget()
 				if part then
 					ok, c, old = flipCam(part.Position)
+					lastShot = {part = part, t = os.clock()}
 					if flag("shot_debug", false) and tp then print("[rv] shot ->", tp.Name) end
 				end
 			end
@@ -366,6 +368,49 @@ fovCircle.Thickness = 1
 fovCircle.Filled = false
 fovCircle.NumSides = 64
 fovCircle.Visible = false
+
+local projHits = {}
+conn(ws.DescendantAdded, function(inst)
+	if DEAD or not flag("silent_aim", false) or not flag("proj_tp", false) then return end
+	local shot = lastShot
+	if not shot or os.clock() - shot.t > 0.4 then return end
+	if not shot.part or not shot.part.Parent then return end
+	local p
+	if inst:IsA("BasePart") then p = inst
+	elseif inst:IsA("Model") then p = inst.PrimaryPart end
+	if not p or p.Anchored then return end
+	local char = lp.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	local function snap(tp)
+		local cf = CFrame.new(tp.Position)
+		if inst:IsA("Model") then
+			inst:PivotTo(cf)
+		else
+			p.CFrame = cf
+		end
+		pcall(function() p.AssemblyLinearVelocity = Vector3.zero p.AssemblyAngularVelocity = Vector3.zero end)
+	end
+	task.defer(function()
+		if DEAD or not p.Parent or not shot.part or not shot.part.Parent then return end
+		local ok, dist = pcall(function() return (p.Position - hrp.Position).Magnitude end)
+		if ok and dist < 80 then
+			pcall(snap, shot.part)
+			projHits[inst] = {part = shot.part, until_ = os.clock() + 0.15, snap = snap}
+		end
+	end)
+end)
+conn(run.Heartbeat, function()
+	if next(projHits) == nil then return end
+	local now = os.clock()
+	for inst, h in pairs(projHits) do
+		if now > h.until_ or not inst.Parent or not h.part.Parent then
+			projHits[inst] = nil
+		else
+			pcall(h.snap, h.part)
+		end
+	end
+end)
 
 conn(run.RenderStepped, function()
 	if DEAD then return end
@@ -1005,6 +1050,7 @@ aimSec:Slider({Title = "max dist", Flag = "aim_dist", Min = 50, Max = 2500, Defa
 Controls.fov_circle = aimSec:Toggle({Title = "show fov", Flag = "fov_circle", Default = false})
 Controls.wall_check = aimSec:Toggle({Title = "wall check", Flag = "wall_check", Default = true, Callback = function(v) CFG.WallCheck = v end})
 Controls.shot_debug = aimSec:Toggle({Title = "shot debug", Flag = "shot_debug", Default = false})
+Controls.proj_tp = aimSec:Toggle({Title = "projectile tp", Flag = "proj_tp", Default = true})
 Controls.autoshoot = aimSec:Toggle({Title = "auto fire", Flag = "autoshoot", Default = false})
 aimSec:Label("auto fires on visible locks")
 aimSec:Slider({Title = "auto delay", Flag = "as_delay", Min = 0.03, Max = 0.5, Default = 0.12, Decimals = 2})
