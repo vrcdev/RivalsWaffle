@@ -216,7 +216,9 @@ local function aimPart(p)
 	return c:FindFirstChild(CFG.AimPart) or c:FindFirstChild("HitboxHead") or c:FindFirstChild("Head") or c:FindFirstChild("HumanoidRootPart")
 end
 
+local getFighterCtl
 local itemLib, itemOrig = nil, {}
+local itemInstOrig = setmetatable({}, {__mode = "k"})
 local function getItemLib()
 	if itemLib then return itemLib end
 	local mods = rs:FindFirstChild("Modules")
@@ -224,29 +226,72 @@ local function getItemLib()
 	if m then local ok, t = pcall(require, m) if ok then itemLib = t end end
 	return itemLib
 end
-local function patchItems()
+local patchCfg
+local function patchTable(t, orig)
+	local rf, rfOn, nrOn, nsOn = patchCfg.rf, patchCfg.rfOn, patchCfg.nrOn, patchCfg.nsOn
+	for k, v in pairs(t) do
+		if type(v) == "number" then
+			if orig[k] == nil then orig[k] = v end
+			local o = orig[k]
+			local kk = tostring(k)
+			if rfOn and (kk:find("Cooldown") or kk:find("Delay") or kk:find("Interval") or kk:find("Rate") or kk:find("Reload") or kk:find("Equip") or kk:find("Recovery") or kk:find("Reset")) then
+				t[k] = o * rf
+			elseif nrOn and (kk:find("Recoil") or kk:find("Kick")) then
+				t[k] = 0
+			elseif nsOn and (kk:find("Spread") or kk:find("Accuracy") or kk:find("Bloom")) then
+				t[k] = 0
+			else
+				t[k] = o
+			end
+		elseif type(v) == "table" then
+			if type(orig[k]) ~= "table" then orig[k] = {} end
+			patchTable(v, orig[k])
+		end
+	end
+end
+local function dumpStats(t, prefix, out, depth)
+	for k, v in pairs(t) do
+		local p = prefix .. "." .. tostring(k)
+		if type(v) == "number" then
+			local kk = tostring(k)
+			if kk:find("Cooldown") or kk:find("Delay") or kk:find("Rate") or kk:find("Recoil") or kk:find("Spread") or kk:find("Interval") or kk:find("Reload") then
+				out[#out + 1] = p .. "=" .. tostring(v)
+			end
+		elseif type(v) == "table" and depth < 3 then
+			dumpStats(v, p, out, depth + 1)
+		end
+	end
+end
+function patchItems()
 	local il = getItemLib()
 	if not il or type(il.Items) ~= "table" then return end
-	local rf = flag("rf_mult", 0.5)
-	local rfOn, nrOn, nsOn = flag("rapid_fire", false), flag("no_recoil", false), flag("no_spread", false)
+	patchCfg = {rf = flag("rf_mult", 0.5), rfOn = flag("rapid_fire", false), nrOn = flag("no_recoil", false), nsOn = flag("no_spread", false)}
+	local dbg = flag("shot_debug", false)
+	local shown = 0
 	for name, data in pairs(il.Items) do
 		if type(data) == "table" then
 			itemOrig[name] = itemOrig[name] or {}
-			local orig = itemOrig[name]
-			for k, v in pairs(data) do
-				if type(v) == "number" and orig[k] == nil then orig[k] = v end
+			patchTable(data, itemOrig[name])
+			if dbg and shown < 15 then
+				shown = shown + 1
+				local out = {}
+				dumpStats(data, "", out, 0)
+				print("[rv] item", name, table.concat(out, " | "))
 			end
-			for k, v in pairs(orig) do
-				if rfOn and (k:find("Cooldown") or k:find("Delay") or k:find("Interval") or k:find("Rate") or k:find("Reload") or k:find("Equip") or k:find("Recovery") or k:find("Reset")) then
-					data[k] = v * rf
-				elseif nrOn and (k:find("Recoil") or k:find("Kick")) then
-					data[k] = 0
-				elseif nsOn and (k:find("Spread") or k:find("Accuracy") or k:find("Bloom")) then
-					data[k] = 0
-				else
-					data[k] = v
+		end
+	end
+	local f
+	local fc = getFighterCtl and getFighterCtl()
+	if fc then pcall(function() f = fc:GetFighter(lp) end) end
+	if f and f.Items then
+		for _, itm in pairs(f.Items) do
+			pcall(function()
+				local d = itm:Get("Data") or rawget(itm, "Data")
+				if type(d) == "table" then
+					itemInstOrig[itm] = itemInstOrig[itm] or {}
+					patchTable(d, itemInstOrig[itm])
 				end
-			end
+			end)
 		end
 	end
 end
@@ -260,6 +305,28 @@ local function rayVisible(part)
 	visParams.FilterDescendantsInstances = {lp.Character, c}
 	local hit = ws:Raycast(c.CFrame.Position, part.Position - c.CFrame.Position, visParams)
 	return (not hit) or hit.Instance:IsDescendantOf(part.Parent)
+end
+
+local targetParts = {}
+local function rescanTargets()
+	table.clear(targetParts)
+	for _, d in ipairs(ws:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local n = string.lower(d.Name)
+			local hit = n:find("target") ~= nil or n:find("dummy") ~= nil
+			if not hit then
+				local par = d.Parent
+				for _ = 1, 3 do
+					if not par or par == ws then break end
+					local pn = string.lower(par.Name)
+					if pn:find("target") or pn:find("dummy") then hit = true break end
+					if par:IsA("Model") and par:FindFirstChildWhichIsA("Humanoid") and not players:GetPlayerFromCharacter(par) then hit = true break end
+					par = par.Parent
+				end
+			end
+			if hit then targetParts[#targetParts + 1] = d end
+		end
+	end
 end
 
 local function pickTarget()
@@ -283,6 +350,21 @@ local function pickTarget()
 							if (not needRay) or rayVisible(part) then
 								best, bestPart, bestD = p, part, d
 							end
+						end
+					end
+				end
+			end
+		end
+	end
+	if flag("aim_dummies", false) then
+		for _, part in ipairs(targetParts) do
+			if part.Parent and (part.Position - myPos).Magnitude <= CFG.MaxDist then
+				local v, on = c:WorldToViewportPoint(part.Position)
+				if on then
+					local d = (vec2(v.X, v.Y) - center).Magnitude
+					if d <= CFG.FOV and d < bestD then
+						if (not needRay) or rayVisible(part) then
+							best, bestPart, bestD = part, part, d
 						end
 					end
 				end
@@ -323,7 +405,7 @@ local function resolveClass(name)
 end
 
 local fighterCtl = nil
-local function getFighterCtl()
+getFighterCtl = function()
 	if fighterCtl then return fighterCtl end
 	local ps = lp:FindFirstChild("PlayerScripts")
 	local m = ps and ps:FindFirstChild("Controllers") and ps.Controllers:FindFirstChild("FighterController")
@@ -395,6 +477,7 @@ task.spawn(function()
 	while not DEAD do
 		task.wait(2)
 		ensureHooks()
+		if flag("aim_dummies", false) then pcall(rescanTargets) end
 	end
 end)
 
@@ -1091,6 +1174,7 @@ Controls.fov_circle = aimSec:Toggle({Title = "show fov", Flag = "fov_circle", De
 Controls.wall_check = aimSec:Toggle({Title = "wall check", Flag = "wall_check", Default = true, Callback = function(v) CFG.WallCheck = v end})
 Controls.shot_debug = aimSec:Toggle({Title = "shot debug", Flag = "shot_debug", Default = false})
 Controls.proj_tp = aimSec:Toggle({Title = "projectile tp", Flag = "proj_tp", Default = true})
+Controls.aim_dummies = aimSec:Toggle({Title = "target dummies", Flag = "aim_dummies", Default = false, Callback = function(v) if v then pcall(rescanTargets) end end})
 Controls.autoshoot = aimSec:Toggle({Title = "auto fire", Flag = "autoshoot", Default = false})
 aimSec:Label("auto fires on visible locks")
 aimSec:Slider({Title = "auto delay", Flag = "as_delay", Min = 0.03, Max = 0.5, Default = 0.12, Decimals = 2})
