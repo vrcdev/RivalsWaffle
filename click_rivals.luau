@@ -371,33 +371,38 @@ fovCircle.Visible = false
 
 local projHits = {}
 conn(ws.DescendantAdded, function(inst)
-	if DEAD or not flag("silent_aim", false) or not flag("proj_tp", false) then return end
-	local shot = lastShot
-	if not shot or os.clock() - shot.t > 0.4 then return end
-	if not shot.part or not shot.part.Parent then return end
-	local p
-	if inst:IsA("BasePart") then p = inst
-	elseif inst:IsA("Model") then p = inst.PrimaryPart end
-	if not p or p.Anchored then return end
+	if DEAD or not flag("proj_tp", false) then return end
+	if not inst:IsA("BasePart") and not inst:IsA("Model") then return end
 	local char = lp.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
-	local function snap(tp)
-		local cf = CFrame.new(tp.Position)
-		if inst:IsA("Model") then
-			inst:PivotTo(cf)
-		else
-			p.CFrame = cf
-		end
-		pcall(function() p.AssemblyLinearVelocity = Vector3.zero p.AssemblyAngularVelocity = Vector3.zero end)
-	end
 	task.defer(function()
-		if DEAD or not p.Parent or not shot.part or not shot.part.Parent then return end
+		if DEAD or not inst.Parent then return end
+		local p = inst:IsA("BasePart") and inst or (inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true))
+		if not p or not p.Parent or p.Anchored then return end
 		local ok, dist = pcall(function() return (p.Position - hrp.Position).Magnitude end)
-		if ok and dist < 80 then
-			pcall(snap, shot.part)
-			projHits[inst] = {part = shot.part, until_ = os.clock() + 0.15, snap = snap}
+		if not ok or dist >= 80 then return end
+		local tp
+		local shot = lastShot
+		if shot and os.clock() - shot.t <= 0.5 and shot.part and shot.part.Parent then
+			tp = shot.part
+		elseif flag("silent_aim", false) then
+			local _, part = pickTarget()
+			tp = part
 		end
+		if not tp then return end
+		if flag("shot_debug", false) then print("[rv] proj tp ->", inst:GetFullName(), inst.ClassName) end
+		local function snap()
+			local cf = CFrame.new(tp.Position)
+			if inst:IsA("Model") then
+				inst:PivotTo(cf)
+			else
+				p.CFrame = cf
+			end
+			pcall(function() p.AssemblyLinearVelocity = Vector3.zero p.AssemblyAngularVelocity = Vector3.zero end)
+		end
+		pcall(snap)
+		projHits[inst] = {part = tp, until_ = os.clock() + 0.15, snap = snap}
 	end)
 end)
 conn(run.Heartbeat, function()
@@ -407,7 +412,7 @@ conn(run.Heartbeat, function()
 		if now > h.until_ or not inst.Parent or not h.part.Parent then
 			projHits[inst] = nil
 		else
-			pcall(h.snap, h.part)
+			pcall(h.snap)
 		end
 	end
 end)
