@@ -444,6 +444,7 @@ end
 local wrapped = {}
 local reentr = setmetatable({}, {__mode = "k"})
 local lastShot, lastUseT = nil, nil
+local rfTest = {on = false, shots = 0, inbound = {}}
 local function wrapClass(cls)
 	if not cls or type(cls.StartShooting) ~= "function" or wrapped[cls] then return end
 	local orig = cls.StartShooting
@@ -870,6 +871,7 @@ installSkinHooks = function()
 			if self == useItemR then
 				local ua = {...}
 				lastUseT = os.clock()
+				if rfTest.on then rfTest.shots = rfTest.shots + 1 end
 				local fc = getFighterCtl()
 				if fc then pcall(function()
 					local f = fc:GetFighter(lp)
@@ -995,6 +997,23 @@ installSkinHooks = function()
 	end
 end
 installSkinHooks()
+pcall(function()
+	local remotes = rs:FindFirstChild("Remotes")
+	if remotes then
+		for _, d in ipairs(remotes:GetDescendants()) do
+			if d:IsA("RemoteEvent") then
+				pcall(function()
+					d.OnClientEvent:Connect(function()
+						if rfTest.on then
+							local n = d:GetFullName()
+							rfTest.inbound[n] = (rfTest.inbound[n] or 0) + 1
+						end
+					end)
+				end)
+			end
+		end
+	end
+end)
 
 local espPool = {}
 local BONES = {
@@ -1219,6 +1238,22 @@ Controls.no_spread = gunSec:Toggle({Title = "no spread", Flag = "no_spread", Def
 Controls.rapid_fire = gunSec:Toggle({Title = "rapid fire", Flag = "rapid_fire", Default = false, Callback = function() patchItems() end})
 gunSec:Slider({Title = "fire rate mult", Flag = "rf_mult", Min = 0.1, Max = 1, Default = 0.5, Decimals = 100, Callback = function() patchItems() end})
 Controls.no_recoil = gunSec:Toggle({Title = "no recoil", Flag = "no_recoil", Default = false, Callback = function() patchItems() end})
+gunSec:Button({Title = "fire rate test (hold fire 5s)", Callback = function()
+	rfTest.shots = 0
+	table.clear(rfTest.inbound)
+	rfTest.on = true
+	print("[rv] fire test armed - hold fire for 5 seconds")
+	task.delay(5, function()
+		rfTest.on = false
+		print("[rv] outbound UseItem:", rfTest.shots, "->", string.format("%.1f", rfTest.shots / 5), "/s")
+		local sorted = {}
+		for n, c in pairs(rfTest.inbound) do sorted[#sorted + 1] = {n = n, c = c} end
+		table.sort(sorted, function(a, b) return a.c > b.c end)
+		for i = 1, math.min(12, #sorted) do
+			print("[rv] inbound", sorted[i].n, "x" .. sorted[i].c)
+		end
+	end)
+end})
 
 local vis = Window:Tab("visuals")
 local espSec = vis:Section("esp", "Left")
