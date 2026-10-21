@@ -444,7 +444,7 @@ end
 local wrapped = {}
 local reentr = setmetatable({}, {__mode = "k"})
 local lastShot, lastUseT = nil, nil
-local rfTest = {on = false, shots = 0, inbound = {}, out = {}}
+local rfTest = {on = false, shots = 0, inbound = {}, out = {}, calls = 0, methods = {}}
 local function wrapClass(cls)
 	if not cls or type(cls.StartShooting) ~= "function" or wrapped[cls] then return end
 	local orig = cls.StartShooting
@@ -868,11 +868,15 @@ installSkinHooks = function()
 		local on = nil
 		on = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
 			local nm = getnamecallmethod()
-			if rfTest.on and (nm == "FireServer" or nm == "InvokeServer") then
-				pcall(function()
-					local n = tostring(self and self.GetFullName and self:GetFullName() or self) .. ":" .. nm
-					rfTest.out[n] = (rfTest.out[n] or 0) + 1
-				end)
+			if rfTest.on then
+				rfTest.calls = rfTest.calls + 1
+				rfTest.methods[tostring(nm)] = (rfTest.methods[tostring(nm)] or 0) + 1
+				if nm == "FireServer" or nm == "InvokeServer" then
+					pcall(function()
+						local n = tostring(self and self.GetFullName and self:GetFullName() or self) .. ":" .. nm
+						rfTest.out[n] = (rfTest.out[n] or 0) + 1
+					end)
+				end
 			end
 			if nm ~= "FireServer" then return on(self, ...) end
 			if self == useItemR then
@@ -1247,13 +1251,19 @@ gunSec:Slider({Title = "fire rate mult", Flag = "rf_mult", Min = 0.1, Max = 1, D
 Controls.no_recoil = gunSec:Toggle({Title = "no recoil", Flag = "no_recoil", Default = false, Callback = function() patchItems() end})
 gunSec:Button({Title = "fire rate test (hold fire 5s)", Callback = function()
 	rfTest.shots = 0
+	rfTest.calls = 0
 	table.clear(rfTest.inbound)
 	table.clear(rfTest.out)
+	table.clear(rfTest.methods)
 	rfTest.on = true
 	print("[rv] fire test armed - hold fire for 5 seconds")
 	task.delay(5, function()
 		rfTest.on = false
-		local lines = {"[rv] outbound UseItem: " .. rfTest.shots .. " -> " .. string.format("%.1f", rfTest.shots / 5) .. "/s"}
+		local lines = {"[rv] namecalls total: " .. rfTest.calls}
+		local ms = {}
+		for n, c in pairs(rfTest.methods) do ms[#ms + 1] = n .. " x" .. c end
+		lines[#lines + 1] = "[rv] methods: " .. table.concat(ms, " | ")
+		lines[#lines + 1] = "[rv] outbound UseItem: " .. rfTest.shots .. " -> " .. string.format("%.1f", rfTest.shots / 5) .. "/s"
 		local so = {}
 		for n, c in pairs(rfTest.out) do so[#so + 1] = {n = n, c = c} end
 		table.sort(so, function(a, b) return a.c > b.c end)
