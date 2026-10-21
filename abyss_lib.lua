@@ -2363,7 +2363,8 @@ do
                     end
     
                     function Slider:Refresh()
-                        local Percent = math.clamp((Mouse.X - SliderOutline.Position.X) / (SliderOutline.Size.X), 0, 1)
+                        local MLoc = UserInput:GetMouseLocation()
+                        local Percent = math.clamp((MLoc.X - SliderOutline.Position.X) / (SliderOutline.Size.X), 0, 1)
                         local Bracket = Slider.Decimals
                         local Value = math.floor((Slider.Min + (Slider.Max - Slider.Min) * Percent) * Bracket) / Bracket
                         Value = math.clamp(Value, Slider.Min, Slider.Max)
