@@ -363,7 +363,13 @@ local function pickTarget()
 	end
 	if flag("aim_dummies", false) then
 		for _, part in ipairs(targetParts) do
-			if part.Parent and (part.Position - myPos).Magnitude <= CFG.MaxDist then
+			local m = part.Parent and part:FindFirstAncestorOfClass("Model")
+			local aimAt = part
+			if m then
+				aimAt = m:FindFirstChild("HitboxHead") or m:FindFirstChild("Head") or m:FindFirstChild("HumanoidRootPart") or part
+			end
+			if aimAt.Parent and (aimAt.Position - myPos).Magnitude <= CFG.MaxDist then
+				part = aimAt
 				local v, on = c:WorldToViewportPoint(part.Position)
 				if on then
 					local d = (vec2(v.X, v.Y) - center).Magnitude
